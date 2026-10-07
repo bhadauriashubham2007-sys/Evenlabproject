@@ -44,6 +44,7 @@ const STORAGE_KEY_API = 'elevenlabs_api_key';
 const STORAGE_KEY_MODEL = 'elevenvoice_selected_model';
 const STORAGE_KEY_VOICE = 'elevenvoice_selected_voice';
 const STORAGE_KEY_HISTORY = 'elevenvoice_history_items';
+const STORAGE_KEY_VIZ_MODE = 'elevenvoice_viz_mode';
 
 // Default ElevenLabs API Key provided by user
 const DEFAULT_API_KEY = 'sk_dc9537c99f69465ec40f7bfb46ddebdee1b7268afbbf1b66';
@@ -57,6 +58,7 @@ const state = {
   currentTrackName: 'Narration Track',
   isGenerating: false,
   isPlaying: false,
+  visualizerMode: localStorage.getItem(STORAGE_KEY_VIZ_MODE) || 'spectrum',
   history: [],
   audioContext: null,
   analyser: null,
@@ -81,6 +83,11 @@ const elements = {
   eyeShowIcon: document.getElementById('eyeShowIcon'),
   eyeHideIcon: document.getElementById('eyeHideIcon'),
 
+  // Header Interactive Elements & Quota
+  neuralSoundOrb: document.getElementById('neuralSoundOrb'),
+  headerTierText: document.getElementById('headerTierText'),
+  headerQuotaText: document.getElementById('headerQuotaText'),
+
   // Controls Toolbar
   modelSelect: document.getElementById('modelSelect'),
   voiceSelect: document.getElementById('voiceSelect'),
@@ -89,6 +96,7 @@ const elements = {
   refreshSpinIcon: document.getElementById('refreshSpinIcon'),
   toggleSettingsBtn: document.getElementById('toggleSettingsBtn'),
   voiceSettingsPanel: document.getElementById('voiceSettingsPanel'),
+  featuredVoiceChips: document.getElementById('featuredVoiceChips'),
 
   // Voice Settings Sliders
   stabilitySlider: document.getElementById('stabilitySlider'),
@@ -120,6 +128,8 @@ const elements = {
   playerSection: document.getElementById('playerSection'),
   visualizerCanvas: document.getElementById('visualizerCanvas'),
   visualizerPlaceholder: document.getElementById('visualizerPlaceholder'),
+  visualizerModeControls: document.getElementById('visualizerModeControls'),
+  visualizerModelBadge: document.getElementById('visualizerModelBadge'),
   nativeAudioElement: document.getElementById('nativeAudioElement'),
   togglePlayPauseBtn: document.getElementById('togglePlayPauseBtn'),
   playerPlayIcon: document.getElementById('playerPlayIcon'),
@@ -156,11 +166,16 @@ document.addEventListener('DOMContentLoaded', () => {
   initAudioPlayerListeners();
   initHistory();
   initCanvasResize();
+  initFeaturedVoiceChips();
+  initVisualizerModes();
+  initNeuralOrb();
+  updateModelBadge();
 
   // Load saved model preference
   const savedModel = localStorage.getItem(STORAGE_KEY_MODEL);
   if (savedModel && elements.modelSelect.querySelector(`option[value="${savedModel}"]`)) {
     elements.modelSelect.value = savedModel;
+    updateModelBadge();
   }
 
   // Pre-fill a sample preset if empty
@@ -171,6 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Fetch live voices and preview samples automatically on startup
   fetchVoices(true);
+  fetchAccountQuota();
 });
 
 /* ==========================================================================
@@ -374,15 +390,142 @@ function renderVoiceDropdown(preferredVoiceId = null) {
     const defaultVoice = state.voices.find(v => v.name.toLowerCase().startsWith('roger') || v.name.toLowerCase().startsWith('george'));
     elements.voiceSelect.value = defaultVoice ? defaultVoice.id : state.voices[0].id;
   }
+  syncVoiceChips(elements.voiceSelect.value);
+}
+
+// Featured Cast Quick-Selection Configuration
+const FEATURED_CAST = [
+  { id: 'CwhRBWXzGAHq8TQ4Fs17', name: 'Roger', tag: 'Casual • Male', initial: 'R' },
+  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah', tag: 'Warm • Female', initial: 'S' },
+  { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'George', tag: 'Storyteller • Male', initial: 'G' },
+  { id: 'Xb7hH8MSUJpSbSDYk0k2', name: 'Alice', tag: 'Educator • Female', initial: 'A' },
+  { id: 'IKne3meq5aSn9XLyUdCD', name: 'Charlie', tag: 'Confident • Male', initial: 'C' },
+  { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam', tag: 'Expressive • Male', initial: 'L' },
+  { id: 'N2lVS1w4EtoT3dr4eOWO', name: 'Callum', tag: 'Husky • Male', initial: 'K' }
+];
+
+function initFeaturedVoiceChips() {
+  if (!elements.featuredVoiceChips) return;
+  elements.featuredVoiceChips.innerHTML = '';
+
+  FEATURED_CAST.forEach(cast => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'cast-chip';
+    chip.dataset.id = cast.id;
+    chip.dataset.name = cast.name;
+    chip.title = `Switch to ${cast.name} (${cast.tag})`;
+    chip.innerHTML = `
+      <span class="cast-avatar">${cast.initial}</span>
+      <span class="cast-name">${cast.name}</span>
+      <span class="cast-tag">${cast.tag}</span>
+    `;
+
+    chip.addEventListener('click', () => {
+      // Sync dropdown
+      if (elements.voiceSelect.querySelector(`option[value="${cast.id}"]`)) {
+        elements.voiceSelect.value = cast.id;
+      }
+      localStorage.setItem(STORAGE_KEY_VOICE, cast.id);
+      syncVoiceChips(cast.id);
+      showToast('Voice Actor Active', `Selected ${cast.name} (${cast.tag})`, 'info');
+    });
+
+    elements.featuredVoiceChips.appendChild(chip);
+  });
+
+  syncVoiceChips(elements.voiceSelect.value);
+}
+
+function syncVoiceChips(activeVoiceId) {
+  if (!elements.featuredVoiceChips) return;
+  const chips = elements.featuredVoiceChips.querySelectorAll('.cast-chip');
+  chips.forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.id === activeVoiceId);
+  });
+}
+
+function initVisualizerModes() {
+  if (!elements.visualizerModeControls) return;
+  const modeButtons = elements.visualizerModeControls.querySelectorAll('.viz-mode-btn');
+
+  modeButtons.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.viz === state.visualizerMode);
+    btn.addEventListener('click', () => {
+      modeButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.visualizerMode = btn.dataset.viz;
+      localStorage.setItem(STORAGE_KEY_VIZ_MODE, state.visualizerMode);
+      showToast('Matrix Mode', `Switched to ${btn.textContent.trim()} visualizer.`, 'info');
+    });
+  });
+}
+
+const MODEL_NAMES = {
+  eleven_multilingual_v2: 'Multilingual v2',
+  eleven_turbo_v2_5: 'Turbo v2.5',
+  eleven_flash_v2_5: 'Flash v2.5',
+  eleven_flash_v2: 'Flash v2',
+  eleven_turbo_v2: 'Turbo v2',
+  eleven_monolingual_v1: 'English v1'
+};
+
+function updateModelBadge() {
+  if (!elements.visualizerModelBadge || !elements.modelSelect) return;
+  const val = elements.modelSelect.value;
+  elements.visualizerModelBadge.textContent = MODEL_NAMES[val] || val;
+}
+
+function initNeuralOrb() {
+  if (!elements.neuralSoundOrb) return;
+  elements.neuralSoundOrb.addEventListener('click', () => {
+    const audio = elements.nativeAudioElement;
+    if (audio.src) {
+      if (audio.paused) {
+        setupWebAudio();
+        audio.play();
+      } else {
+        audio.pause();
+      }
+    } else {
+      elements.generatePlayBtn.click();
+    }
+  });
+}
+
+async function fetchAccountQuota() {
+  if (!state.apiKey) return;
+  try {
+    const res = await fetch('https://api.elevenlabs.io/v1/user', {
+      headers: { 'xi-api-key': state.apiKey }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const sub = data.subscription;
+      if (sub) {
+        const tier = (sub.tier || 'Free').toUpperCase();
+        const count = sub.character_count || 0;
+        const limit = sub.character_limit || 10000;
+        const remaining = Math.max(0, limit - count);
+
+        if (elements.headerTierText) elements.headerTierText.textContent = tier;
+        if (elements.headerQuotaText) elements.headerQuotaText.textContent = `${remaining.toLocaleString()} left`;
+      }
+    }
+  } catch (e) {
+    console.debug('Quota fetch notice:', e);
+  }
 }
 
 // Model & Voice Change storage
 elements.modelSelect.addEventListener('change', (e) => {
   localStorage.setItem(STORAGE_KEY_MODEL, e.target.value);
+  updateModelBadge();
 });
 
 elements.voiceSelect.addEventListener('change', (e) => {
   localStorage.setItem(STORAGE_KEY_VOICE, e.target.value);
+  syncVoiceChips(e.target.value);
 });
 
 // Voice Preview Sample Button
@@ -719,27 +862,41 @@ function startVisualizerLoop() {
 
   const canvas = elements.visualizerCanvas;
   const ctx = canvasCtx;
-  const bufferLength = state.analyser ? state.analyser.frequencyBinCount : 64;
-  const dataArray = new Uint8Array(bufferLength);
+  const bufferLength = state.analyser ? state.analyser.frequencyBinCount : 128;
+  const freqData = new Uint8Array(bufferLength);
+  const timeData = new Uint8Array(bufferLength);
+
+  // Peak dots tracking for spectrum mode
+  const peakDots = new Array(48).fill(0);
+  let phase = 0;
 
   function draw() {
     state.animationFrameId = requestAnimationFrame(draw);
 
-    if (state.analyser && state.isPlaying) {
-      state.analyser.getByteFrequencyData(dataArray);
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+
+    const hasAudio = state.analyser && state.isPlaying;
+
+    if (hasAudio) {
+      state.analyser.getByteFrequencyData(freqData);
+      state.analyser.getByteTimeDomainData(timeData);
     } else {
-      // Decay to idle
-      for (let i = 0; i < dataArray.length; i++) {
-        dataArray[i] = Math.max(0, dataArray[i] - 6);
+      // Decay frequency values
+      for (let i = 0; i < freqData.length; i++) {
+        freqData[i] = Math.max(0, freqData[i] - 5);
       }
     }
 
-    const width = canvas.width;
-    const height = canvas.height;
+    phase += 0.04;
 
-    ctx.clearRect(0, 0, width, height);
+    // Calculate total energy
+    let totalEnergy = 0;
+    for (let i = 0; i < 32; i++) totalEnergy += freqData[i];
+    const isActuallySilent = totalEnergy < 20;
 
-    // Draw background subtle grid lines
+    // Draw background subtle centerline
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -747,36 +904,236 @@ function startVisualizerLoop() {
     ctx.lineTo(width, height / 2);
     ctx.stroke();
 
-    // Draw dynamic glowing bars
-    const barCount = 48;
-    const barWidth = (width / barCount) - 3;
-    const step = Math.floor(bufferLength / barCount) || 1;
-
-    for (let i = 0; i < barCount; i++) {
-      const val = dataArray[i * step] || 0;
-      const percent = val / 255;
-      const barHeight = Math.max(4, percent * (height - 14));
-      const x = i * (barWidth + 3);
-      const y = (height - barHeight) / 2;
-
-      // Create gradient for each bar
-      const grad = ctx.createLinearGradient(0, y, 0, y + barHeight);
-      grad.addColorStop(0, '#06b6d4');
-      grad.addColorStop(0.5, '#6366f1');
-      grad.addColorStop(1, '#a855f7');
-
-      ctx.fillStyle = grad;
-      ctx.shadowColor = 'rgba(99, 102, 241, 0.5)';
-      ctx.shadowBlur = percent > 0.4 ? 10 : 0;
-
-      // Rounded bars
-      roundRect(ctx, x, y, barWidth, barHeight, 3);
+    if (isActuallySilent && !state.isPlaying) {
+      drawIdleAmbientWave(ctx, width, height, phase);
+      return;
     }
 
-    ctx.shadowBlur = 0;
+    const mode = state.visualizerMode || 'spectrum';
+
+    if (mode === 'sine') {
+      drawHarmonicSineMode(ctx, width, height, timeData, freqData, phase);
+    } else if (mode === 'galaxy') {
+      drawGalaxyNebulaMode(ctx, width, height, freqData, phase);
+    } else {
+      // Default: 'spectrum'
+      drawNeonSpectrumMode(ctx, width, height, freqData, peakDots);
+    }
   }
 
   draw();
+}
+
+// 1. Idle Ambient Holographic Wave
+function drawIdleAmbientWave(ctx, width, height, phase) {
+  const cy = height / 2;
+  
+  // Wave 1 - Cyan
+  ctx.beginPath();
+  for (let x = 0; x <= width; x += 6) {
+    const y = cy + Math.sin(x * 0.012 + phase) * 12 * Math.sin(x / width * Math.PI);
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = 'rgba(6, 182, 212, 0.45)';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(6, 182, 212, 0.6)';
+  ctx.shadowBlur = 8;
+  ctx.stroke();
+
+  // Wave 2 - Indigo / Violet
+  ctx.beginPath();
+  for (let x = 0; x <= width; x += 6) {
+    const y = cy + Math.sin(x * 0.018 - phase * 0.9) * 9 * Math.sin(x / width * Math.PI);
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = 'rgba(168, 85, 247, 0.4)';
+  ctx.lineWidth = 1.8;
+  ctx.shadowColor = 'rgba(168, 85, 247, 0.5)';
+  ctx.shadowBlur = 8;
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+}
+
+// 2. Neon Spectrum Equalizer Bars with Peak Dots & Soft Floor Reflection
+function drawNeonSpectrumMode(ctx, width, height, freqData, peakDots) {
+  const barCount = 48;
+  const barWidth = Math.max(3, (width / barCount) - 4);
+  const step = Math.floor(freqData.length / barCount) || 1;
+  const baseline = height * 0.82;
+
+  for (let i = 0; i < barCount; i++) {
+    const val = freqData[i * step] || 0;
+    const percent = val / 255;
+    const barHeight = Math.max(3, percent * (baseline - 10));
+    const x = i * (barWidth + 4);
+    const y = baseline - barHeight;
+
+    // Dynamic Gradient for each bar
+    const grad = ctx.createLinearGradient(0, y, 0, baseline);
+    grad.addColorStop(0, '#38bdf8');
+    grad.addColorStop(0.35, '#6366f1');
+    grad.addColorStop(0.8, '#a855f7');
+    grad.addColorStop(1, '#ec4899');
+
+    ctx.fillStyle = grad;
+    if (percent > 0.45) {
+      ctx.shadowColor = 'rgba(56, 189, 248, 0.6)';
+      ctx.shadowBlur = 10;
+    } else {
+      ctx.shadowBlur = 0;
+    }
+
+    roundRect(ctx, x, y, barWidth, barHeight, 2.5);
+
+    // Peak Dot with slow gravity decay
+    if (barHeight > peakDots[i]) {
+      peakDots[i] = barHeight;
+    } else {
+      peakDots[i] = Math.max(0, peakDots[i] - 1.4);
+    }
+
+    const peakY = baseline - peakDots[i] - 3;
+    if (peakY >= 2 && peakDots[i] > 6) {
+      ctx.fillStyle = '#fff';
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 6;
+      roundRect(ctx, x, peakY, barWidth, 2, 1);
+    }
+
+    // Floor Reflection
+    const reflectHeight = barHeight * 0.22;
+    const reflectGrad = ctx.createLinearGradient(0, baseline, 0, baseline + reflectHeight);
+    reflectGrad.addColorStop(0, 'rgba(99, 102, 241, 0.25)');
+    reflectGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = reflectGrad;
+    ctx.shadowBlur = 0;
+    roundRect(ctx, x, baseline + 2, barWidth, reflectHeight, 1.5);
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+// 3. Fluid Harmonics Sine Waves Mode
+function drawHarmonicSineMode(ctx, width, height, timeData, freqData, phase) {
+  const cy = height / 2;
+  
+  // Calculate average audio intensity
+  let sum = 0;
+  for (let i = 0; i < 32; i++) sum += freqData[i] || 0;
+  const energy = Math.max(0.15, sum / (32 * 255));
+  const maxAmp = (height * 0.42) * energy;
+
+  // Ribbon 1: Deep Cyan Bass
+  ctx.beginPath();
+  for (let x = 0; x <= width; x += 4) {
+    const timeVal = (timeData[Math.floor((x / width) * timeData.length)] || 128) - 128;
+    const timeOffset = (timeVal / 128) * maxAmp * 0.6;
+    const y = cy + Math.sin(x * 0.015 + phase) * (maxAmp + 8) * Math.sin(x / width * Math.PI) + timeOffset;
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = '#06b6d4';
+  ctx.lineWidth = 3;
+  ctx.shadowColor = 'rgba(6, 182, 212, 0.8)';
+  ctx.shadowBlur = 12;
+  ctx.stroke();
+
+  // Ribbon 2: Electric Violet Mid-range
+  ctx.beginPath();
+  for (let x = 0; x <= width; x += 4) {
+    const y = cy + Math.sin(x * 0.022 - phase * 1.3) * (maxAmp * 0.85 + 6) * Math.sin(x / width * Math.PI);
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = '#a855f7';
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = 'rgba(168, 85, 247, 0.8)';
+  ctx.shadowBlur = 12;
+  ctx.stroke();
+
+  // Ribbon 3: Neon Magenta Treble
+  ctx.beginPath();
+  for (let x = 0; x <= width; x += 4) {
+    const y = cy + Math.sin(x * 0.034 + phase * 1.8) * (maxAmp * 0.65 + 4) * Math.sin(x / width * Math.PI);
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = '#ec4899';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(236, 72, 153, 0.8)';
+  ctx.shadowBlur = 10;
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+}
+
+// 4. Radial Sound Nebula / Galaxy Mode
+function drawGalaxyNebulaMode(ctx, width, height, freqData, phase) {
+  const cx = width / 2;
+  const cy = height / 2;
+
+  // Bass energy
+  let bass = 0;
+  for (let i = 0; i < 6; i++) bass += freqData[i] || 0;
+  const bassNorm = bass / (6 * 255);
+  const coreRadius = Math.min(height * 0.22, 24) + bassNorm * 18;
+
+  // Draw Pulsing Nebula Core
+  const coreGrad = ctx.createRadialGradient(cx, cy, 2, cx, cy, coreRadius * 1.6);
+  coreGrad.addColorStop(0, '#fff');
+  coreGrad.addColorStop(0.3, '#38bdf8');
+  coreGrad.addColorStop(0.7, 'rgba(99, 102, 241, 0.5)');
+  coreGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, coreRadius * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Equalizer Rays
+  const rayCount = 42;
+  for (let i = 0; i < rayCount; i++) {
+    const theta = (i / rayCount) * Math.PI * 2 + (phase * 0.25);
+    const val = freqData[i * 2] || 0;
+    const rayLength = 8 + (val / 255) * (height * 0.35);
+
+    const x1 = cx + Math.cos(theta) * (coreRadius + 2);
+    const y1 = cy + Math.sin(theta) * (coreRadius + 2);
+    const x2 = cx + Math.cos(theta) * (coreRadius + rayLength);
+    const y2 = cy + Math.sin(theta) * (coreRadius + rayLength);
+
+    const rayGrad = ctx.createLinearGradient(x1, y1, x2, y2);
+    rayGrad.addColorStop(0, '#06b6d4');
+    rayGrad.addColorStop(0.6, '#818cf8');
+    rayGrad.addColorStop(1, '#ec4899');
+
+    ctx.strokeStyle = rayGrad;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  // Floating Stardust Particles
+  const particleCount = 12;
+  for (let p = 0; p < particleCount; p++) {
+    const pTheta = (p / particleCount) * Math.PI * 2 - (phase * 0.45);
+    const pDist = coreRadius + 22 + Math.sin(p * 2 + phase) * 12;
+    const px = cx + Math.cos(pTheta) * pDist;
+    const py = cy + Math.sin(pTheta) * pDist;
+
+    ctx.fillStyle = p % 2 === 0 ? '#a5f3fc' : '#f472b6';
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.arc(px, py, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.shadowBlur = 0;
 }
 
 function roundRect(ctx, x, y, width, height, radius) {
@@ -814,6 +1171,14 @@ function initAudioPlayerListeners() {
     elements.playerPlayIcon.classList.add('hidden');
     elements.playerPauseIcon.classList.remove('hidden');
     elements.visualizerPlaceholder.classList.add('hidden');
+    
+    // Animate Neural Reactor Orb & Glow
+    if (elements.neuralSoundOrb) elements.neuralSoundOrb.classList.add('playing');
+    if (elements.visualizerCanvas && elements.visualizerCanvas.parentElement) {
+      elements.visualizerCanvas.parentElement.classList.add('active');
+    }
+    document.querySelector('.studio-card.main-card')?.classList.add('audio-playing');
+
     if (state.audioContext && state.audioContext.state === 'suspended') {
       state.audioContext.resume();
     }
@@ -823,12 +1188,25 @@ function initAudioPlayerListeners() {
     state.isPlaying = false;
     elements.playerPlayIcon.classList.remove('hidden');
     elements.playerPauseIcon.classList.add('hidden');
+
+    if (elements.neuralSoundOrb) elements.neuralSoundOrb.classList.remove('playing');
+    if (elements.visualizerCanvas && elements.visualizerCanvas.parentElement) {
+      elements.visualizerCanvas.parentElement.classList.remove('active');
+    }
+    document.querySelector('.studio-card.main-card')?.classList.remove('audio-playing');
   });
 
   audio.addEventListener('ended', () => {
     state.isPlaying = false;
     elements.playerPlayIcon.classList.remove('hidden');
     elements.playerPauseIcon.classList.add('hidden');
+
+    if (elements.neuralSoundOrb) elements.neuralSoundOrb.classList.remove('playing');
+    if (elements.visualizerCanvas && elements.visualizerCanvas.parentElement) {
+      elements.visualizerCanvas.parentElement.classList.remove('active');
+    }
+    document.querySelector('.studio-card.main-card')?.classList.remove('audio-playing');
+
     elements.audioScrubber.value = 0;
     elements.scrubProgress.style.width = '0%';
     elements.currentTimeLabel.textContent = '0:00';
@@ -872,6 +1250,13 @@ function initAudioPlayerListeners() {
     elements.stopAudioBtn.classList.add('hidden');
     elements.playerPlayIcon.classList.remove('hidden');
     elements.playerPauseIcon.classList.add('hidden');
+    
+    if (elements.neuralSoundOrb) elements.neuralSoundOrb.classList.remove('playing');
+    if (elements.visualizerCanvas && elements.visualizerCanvas.parentElement) {
+      elements.visualizerCanvas.parentElement.classList.remove('active');
+    }
+    document.querySelector('.studio-card.main-card')?.classList.remove('audio-playing');
+
     elements.audioScrubber.value = 0;
     elements.scrubProgress.style.width = '0%';
     elements.currentTimeLabel.textContent = '0:00';

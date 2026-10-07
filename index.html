@@ -10,10 +10,10 @@
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z'/></svg>">
   
-  <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+  <!-- Google Fonts: Syne, Outfit, Plus Jakarta Sans & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Syne:wght@700;800&display=swap" rel="stylesheet">
   
   <link rel="stylesheet" href="style.css">
 </head>
@@ -22,27 +22,47 @@
   <div class="ambient-glow glow-1"></div>
   <div class="ambient-glow glow-2"></div>
   <div class="ambient-glow glow-3"></div>
+  <div class="cyber-grid-overlay"></div>
 
   <div class="app-container">
     <!-- Studio Header -->
     <header class="app-header">
       <div class="header-brand">
-        <div class="brand-icon">
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v20M17 5v14M7 9v6M22 10v4M2 11v2" />
-          </svg>
+        <div class="brand-icon-wrapper">
+          <div class="brand-icon-glow"></div>
+          <div class="brand-icon">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v20M17 5v14M7 9v6M22 10v4M2 11v2" />
+            </svg>
+          </div>
         </div>
         <div class="brand-text">
           <h1 class="brand-title">ElevenVoice <span class="badge-pro">Studio</span></h1>
-          <p class="brand-subtitle">Powered by ElevenLabs AI Speech Synthesis</p>
+          <p class="brand-subtitle"><span class="engine-indicator"></span> Neural Speech Synthesis &bull; ElevenLabs v2.5</p>
+        </div>
+      </div>
+
+      <!-- Center Neural Sound Reactor Orb -->
+      <div class="neural-orb-container" id="neuralSoundOrb" title="ElevenLabs Neural Sound Reactor">
+        <div class="neural-orb-ring ring-3"></div>
+        <div class="neural-orb-ring ring-2"></div>
+        <div class="neural-orb-ring ring-1"></div>
+        <div class="neural-orb-core">
+          <span class="orb-pulse"></span>
         </div>
       </div>
 
       <div class="header-actions">
+        <!-- Live Quota Status Indicator -->
+        <div class="quota-pill" title="ElevenLabs Account Tier & Quota">
+          <span class="quota-sparkle">⚡</span>
+          <span class="quota-text">Tier: <strong id="headerTierText">Free</strong> &bull; <span id="headerQuotaText">10k chars</span></span>
+        </div>
+
         <!-- API Key Status Badge & Button -->
         <button id="apiKeyBtn" class="pill-btn status-btn" type="button" title="Configure ElevenLabs API Key">
           <span class="status-dot" id="apiKeyStatusDot"></span>
-          <span id="apiKeyStatusText">API Key: Not Set</span>
+          <span id="apiKeyStatusText">API Key: Configured</span>
           <svg class="chevron-icon" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
             <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
           </svg>
@@ -132,6 +152,17 @@
               </button>
             </div>
 
+          </div>
+
+          <!-- Featured Voice Cast Quick-Pick Bar -->
+          <div class="featured-cast-bar">
+            <div class="cast-label-group">
+              <span class="cast-sparkle-icon">✨</span>
+              <span class="cast-heading">Featured Cast:</span>
+            </div>
+            <div class="cast-chips-wrapper" id="featuredVoiceChips">
+              <!-- Populated via JS with Roger, Sarah, George, Alice, Charlie, Liam, Callum -->
+            </div>
           </div>
 
           <!-- Collapsible Voice Fine-tuning Panel -->
@@ -262,9 +293,29 @@
           <!-- Real-time Waveform Canvas & Studio Audio Player -->
           <div id="playerSection" class="player-container">
             
+            <!-- Visualizer Header Toolbar -->
+            <div class="visualizer-header">
+              <div class="visualizer-badge-group">
+                <span class="live-pulse-dot"></span>
+                <span class="visualizer-label">Acoustic Quantum Matrix</span>
+                <span id="visualizerModelBadge" class="mode-badge">Multilingual v2</span>
+              </div>
+              <div class="visualizer-modes" id="visualizerModeControls">
+                <button type="button" class="viz-mode-btn active" data-viz="spectrum" title="Neon Spectrum Equalizer">
+                  <span>⚡ Spectrum</span>
+                </button>
+                <button type="button" class="viz-mode-btn" data-viz="sine" title="Fluid Harmonic Sine Waves">
+                  <span>🌊 Harmonics</span>
+                </button>
+                <button type="button" class="viz-mode-btn" data-viz="galaxy" title="Radial Sound Nebula">
+                  <span>🌌 Nebula</span>
+                </button>
+              </div>
+            </div>
+
             <!-- Canvas Visualizer -->
             <div class="visualizer-wrapper">
-              <canvas id="visualizerCanvas" width="800" height="96"></canvas>
+              <canvas id="visualizerCanvas" width="800" height="105"></canvas>
               <div id="visualizerPlaceholder" class="visualizer-placeholder">
                 <div class="sound-wave-idle">
                   <span></span><span></span><span></span><span></span><span></span>
